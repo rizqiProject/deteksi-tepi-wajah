@@ -16,8 +16,17 @@ Catatan metodologis (biar konsisten dengan Bab 3 makalah):
   dengan kontur wajah keseluruhan, untuk menjaga konsistensi pencahayaan.
 """
 
+import os
+
 import cv2
 import numpy as np
+
+# File cascade (.xml) disertakan langsung sejajar dengan file ini di dalam
+# project (bukan di subfolder), supaya tidak bergantung pada
+# cv2.data.haarcascades yang kadang tidak tersedia/berbeda-beda di
+# lingkungan server (mis. Streamlit Cloud), dan supaya upload di GitHub
+# tetap simpel (tidak perlu bikin folder).
+_CASCADE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 # ---------------------------------------------------------------------------
@@ -58,15 +67,15 @@ def apply_canny(gray: np.ndarray, low_threshold: int = 50, high_threshold: int =
 # Deteksi otomatis wajah, mata, mulut (untuk crop fitur spesifik)
 # ---------------------------------------------------------------------------
 
-_face_cascade = cv2.CascadeClassifier(
-    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-)
-_eye_cascade = cv2.CascadeClassifier(
-    cv2.data.haarcascades + "haarcascade_eye.xml"
-)
-_smile_cascade = cv2.CascadeClassifier(
-    cv2.data.haarcascades + "haarcascade_smile.xml"
-)
+_face_cascade = cv2.CascadeClassifier(os.path.join(_CASCADE_DIR, "haarcascade_frontalface_default.xml"))
+_eye_cascade = cv2.CascadeClassifier(os.path.join(_CASCADE_DIR, "haarcascade_eye.xml"))
+_smile_cascade = cv2.CascadeClassifier(os.path.join(_CASCADE_DIR, "haarcascade_smile.xml"))
+
+for _name, _clf in [("face", _face_cascade), ("eye", _eye_cascade), ("smile", _smile_cascade)]:
+    if _clf.empty():
+        raise RuntimeError(
+            f"Gagal memuat cascade '{_name}'. Pastikan folder 'cascades/' ikut ter-upload ke repo."
+        )
 
 
 def detect_face(gray: np.ndarray):
