@@ -1,155 +1,224 @@
-"""
-imgproc.py
-Modul inti untuk penelitian "Perbandingan Kinerja Operator Sobel dan
-Algoritma Canny dalam Deteksi Tepi pada Citra Wajah".
-
-Berisi:
-- Konversi grayscale
-- Operator Sobel (magnitudo gradien)
-- Algoritma Canny
-- Deteksi otomatis wajah, mata, dan area mulut (Haar Cascade)
-
-Catatan metodologis (biar konsisten dengan Bab 3 makalah):
-- Semua operator tepi diterapkan pada citra GRAYSCALE, bukan RGB langsung,
-  sesuai penjelasan di Landasan Teori.
-- Crop fitur spesifik (mata/mulut) diambil dari foto dasar yang sama
-  dengan kontur wajah keseluruhan, untuk menjaga konsistensi pencahayaan.
-"""
-
-import os
-
+"""imgproc.py — Modul pemrosesan citra untuk EdgeVision."""
 import cv2
 import numpy as np
+import time
 
-# File cascade (.xml) disertakan langsung sejajar dengan file ini di dalam
-# project (bukan di subfolder), supaya tidak bergantung pada
-# cv2.data.haarcascades yang kadang tidak tersedia/berbeda-beda di
-# lingkungan server (mis. Streamlit Cloud), dan supaya upload di GitHub
-# tetap simpel (tidak perlu bikin folder).
-_CASCADE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ── Haar Cascade classifiers ─────────────────────────────────────────────────
+_CASCADE_DIR  = cv2.data.haarcascades
+FACE_CASCADE  = cv2.CascadeClassifier(_CASCADE_DIR + "haarcascade_frontalface_default.xml")
+EYE_CASCADE   = cv2.CascadeClassifier(_CASCADE_DIR + "haarcascade_eye.xml")
+SMILE_CASCADE = cv2.CascadeClassifier(_CASCADE_DIR + "haarcascade_smile.xml")
 
-
-# ---------------------------------------------------------------------------
-# Dasar: grayscale, Sobel, Canny
-# ---------------------------------------------------------------------------
-
-def to_grayscale(image_bgr: np.ndarray) -> np.ndarray:
-    """Konversi citra RGB/BGR ke grayscale (satu kanal intensitas)."""
-    return cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+MAX_DIM = 1024  # Batas panjang sisi terpanjang setelah auto-resize
 
 
-def apply_sobel(gray: np.ndarray, ksize: int = 3) -> np.ndarray:
+# ─────────────────────────────────────────────────────────────────────────────
+#  Utilitas dasar
+# ─────────────────────────────────────────────────────────────────────────────
+
+def load_image(file_bytes):
     """
-    Operator Sobel: menghitung Gx dan Gy lalu magnitudo gradien
-    G = sqrt(Gx^2 + Gy^2), dinormalisasi ke rentang 0-255 agar bisa
-    ditampilkan sebagai citra 8-bit.
+    Muat gambar dari bytes (hasil upload/kamera).
+    Auto-resize jika dimensi melebihi MAX_DIM.
+    Mengembalikan array BGR atau None jika file rusak.
     """
-    gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=ksize)
-    gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=ksize)
-    magnitude = np.sqrt(gx ** 2 + gy ** 2)
-    magnitude = np.uint8(255 * magnitude / (magnitude.max() + 1e-8))
-    return magnitude
-
-
-def apply_canny(gray: np.ndarray, low_threshold: int = 50, high_threshold: int = 150) -> np.ndarray:
-    """
-    Algoritma Canny: Gaussian blur -> gradien -> non-max suppression ->
-    hysteresis thresholding (dua tahap terakhir sudah built-in di cv2.Canny).
-    Blur manual ditambahkan dulu supaya tahap 'reduksi derau' eksplisit
-    terlihat di kode, sesuai penjelasan 4 tahap di Bab 2.
-    """
-    blurred = cv2.GaussianBlur(gray, (5, 5), sigmaX=1.4)
-    edges = cv2.Canny(blurred, low_threshold, high_threshold)
-    return edges
-
-
-# ---------------------------------------------------------------------------
-# Deteksi otomatis wajah, mata, mulut (untuk crop fitur spesifik)
-# ---------------------------------------------------------------------------
-
-_face_cascade = cv2.CascadeClassifier(os.path.join(_CASCADE_DIR, "haarcascade_frontalface_default.xml"))
-_eye_cascade = cv2.CascadeClassifier(os.path.join(_CASCADE_DIR, "haarcascade_eye.xml"))
-_smile_cascade = cv2.CascadeClassifier(os.path.join(_CASCADE_DIR, "haarcascade_smile.xml"))
-
-for _name, _clf in [("face", _face_cascade), ("eye", _eye_cascade), ("smile", _smile_cascade)]:
-    if _clf.empty():
-        raise RuntimeError(
-            f"Gagal memuat cascade '{_name}'. Pastikan folder 'cascades/' ikut ter-upload ke repo."
-        )
-
-
-def detect_face(gray: np.ndarray):
-    """Kembalikan bounding box wajah terbesar (x, y, w, h), atau None."""
-    faces = _face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(80, 80))
-    if len(faces) == 0:
+    try:
+        arr = np.frombuffer(file_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+        h, w = img.shape[:2]
+        if max(h, w) > MAX_DIM:
+            scale   = MAX_DIM / max(h, w)
+            new_w   = int(w * scale)
+            new_h   = int(h * scale)
+            img     = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        return img
+    except Exception:
         return None
-    # ambil wajah dengan area terbesar (paling dominan di foto)
-    return max(faces, key=lambda f: f[2] * f[3])
 
 
-def detect_eyes(gray_face_roi: np.ndarray):
-    """Deteksi mata di dalam ROI wajah. Kembalikan list (x, y, w, h) relatif ROI."""
-    eyes = _eye_cascade.detectMultiScale(gray_face_roi, scaleFactor=1.1, minNeighbors=8, minSize=(20, 20))
-    return list(eyes)
+def to_rgb(img_bgr):
+    """Konversi BGR → RGB (untuk ditampilkan)."""
+    return cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
 
-def detect_mouth(gray_face_roi: np.ndarray, face_h: int):
+def to_gray(img_bgr):
+    """Konversi BGR → Grayscale."""
+    return cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Deteksi tepi
+# ─────────────────────────────────────────────────────────────────────────────
+
+def apply_sobel(gray, ksize=3):
     """
-    Deteksi area mulut memakai haarcascade_smile pada separuh bawah wajah
-    (mengurangi false positive di area mata/hidung). Jika gagal terdeteksi,
-    fallback ke estimasi proporsional (heuristik) berdasarkan anatomi wajah
-    umum: mulut ada di sekitar 65%-95% tinggi wajah dari atas.
+    Deteksi tepi dengan Operator Sobel.
+    Mengembalikan (gambar_tepi_RGB uint8, waktu_komputasi_ms float).
     """
-    lower_half_y = face_h // 2
-    lower_roi = gray_face_roi[lower_half_y:, :]
-    mouths = _smile_cascade.detectMultiScale(lower_roi, scaleFactor=1.7, minNeighbors=20, minSize=(25, 15))
-    if len(mouths) > 0:
-        mx, my, mw, mh = max(mouths, key=lambda m: m[2] * m[3])
-        return (mx, my + lower_half_y, mw, mh), "haar_smile"
-    # fallback heuristik proporsional (dicatat sebagai keterbatasan di makalah)
-    fw = gray_face_roi.shape[1]
-    fh = gray_face_roi.shape[0]
-    est_x = int(0.25 * fw)
-    est_y = int(0.65 * fh)
-    est_w = int(0.5 * fw)
-    est_h = int(0.30 * fh)
-    return (est_x, est_y, est_w, est_h), "fallback_proporsional"
+    t0  = time.perf_counter()
+    gx  = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=ksize)
+    gy  = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=ksize)
+    mag = np.sqrt(gx ** 2 + gy ** 2)
+    if mag.max() > 0:
+        mag = np.uint8(255.0 * mag / mag.max())
+    else:
+        mag = np.zeros_like(gray, dtype=np.uint8)
+    t1  = time.perf_counter()
+    return cv2.cvtColor(mag, cv2.COLOR_GRAY2RGB), (t1 - t0) * 1000.0
 
 
-def extract_face_and_features(image_bgr: np.ndarray):
+def apply_canny(gray, low=50, high=150):
     """
-    Pipeline lengkap: deteksi wajah -> crop kontur wajah keseluruhan ->
-    deteksi mata & mulut di dalam wajah -> crop tiap fitur.
-
-    Return dict berisi crop grayscale untuk: wajah_utuh, mata (list), mulut,
-    beserta metadata metode deteksi (untuk ditulis di Bab 3/4 sebagai
-    transparansi metodologis).
+    Deteksi tepi dengan Algoritma Canny.
+    Mengembalikan (gambar_tepi_RGB uint8, waktu_komputasi_ms float).
     """
-    gray = to_grayscale(image_bgr)
-    face_box = detect_face(gray)
+    t0    = time.perf_counter()
+    edges = cv2.Canny(gray, low, high)
+    t1    = time.perf_counter()
+    return cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB), (t1 - t0) * 1000.0
 
+
+def edge_density(edge_rgb):
+    """
+    Persentase piksel tepi terdeteksi terhadap total piksel (0.0–100.0).
+    Input: gambar RGB hasil apply_sobel atau apply_canny.
+    """
+    gray = cv2.cvtColor(edge_rgb, cv2.COLOR_RGB2GRAY)
+    return 100.0 * float(np.count_nonzero(gray)) / float(gray.size)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Deteksi fitur wajah
+# ─────────────────────────────────────────────────────────────────────────────
+
+def detect_face(img_bgr):
+    """
+    Deteksi otomatis: wajah → mata (area atas 55%) → mulut (area bawah 40%).
+
+    Mengembalikan dict dengan kunci:
+      annotated  : ndarray RGB  — gambar anotasi bounding box
+      face       : ndarray RGB atau None — crop wajah terbesar
+      right_eye  : ndarray RGB atau None — mata kanan subjek (kiri di gambar)
+      left_eye   : ndarray RGB atau None — mata kiri subjek (kanan di gambar)
+      mouth      : ndarray RGB atau None — area mulut
+      notes      : list[str]  — catatan keterbatasan deteksi
+    """
+    gray   = to_gray(img_bgr)
     result = {
-        "gray_full": gray,
-        "face_box": face_box,
-        "face_crop": None,
-        "eyes_crop": [],
-        "mouth_crop": None,
-        "mouth_method": None,
+        "annotated": to_rgb(img_bgr),
+        "face":      None,
+        "right_eye": None,
+        "left_eye":  None,
+        "mouth":     None,
+        "notes":     [],
     }
 
-    if face_box is None:
-        return result  # tidak ada wajah terdeteksi -> caller harus menangani
+    # ── 1. Deteksi wajah ────────────────────────────────────────────────────
+    faces = FACE_CASCADE.detectMultiScale(
+        gray, scaleFactor=1.1, minNeighbors=5, minSize=(80, 80)
+    )
+    if len(faces) == 0:
+        result["notes"].append(
+            "Wajah tidak terdeteksi — gunakan foto dengan cahaya merata "
+            "dan wajah menghadap lurus ke kamera."
+        )
+        return result
 
-    fx, fy, fw, fh = face_box
-    face_roi = gray[fy:fy + fh, fx:fx + fw]
-    result["face_crop"] = face_roi
+    # Ambil wajah dengan area terbesar
+    x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+    face_bgr    = img_bgr[y : y + h, x : x + w]
+    face_gray   = gray[y : y + h, x : x + w]
+    result["face"] = to_rgb(face_bgr)
 
-    eyes = detect_eyes(face_roi)
-    for (ex, ey, ew, eh) in eyes:
-        result["eyes_crop"].append(face_roi[ey:ey + eh, ex:ex + ew])
+    # ── 2. Deteksi mata — dibatasi di 55% area atas wajah ──────────────────
+    eye_h      = int(h * 0.55)
+    eye_region = face_gray[:eye_h, :]
+    eyes       = []          # untuk anotasi
 
-    (mx, my, mw, mh), method = detect_mouth(face_roi, fh)
-    result["mouth_crop"] = face_roi[my:my + mh, mx:mx + mw]
-    result["mouth_method"] = method
+    raw_eyes = EYE_CASCADE.detectMultiScale(
+        eye_region, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20)
+    )
+    if len(raw_eyes) > 0:
+        # Urutkan kiri→kanan di gambar, ambil maks 2
+        eyes = sorted(raw_eyes.tolist(), key=lambda e: e[0])[:2]
+        crops = []
+        for ex, ey, ew, eh in eyes:
+            pad  = int(ew * 0.3)
+            x1   = max(0, ex - pad)
+            y1   = max(0, ey - pad)
+            x2   = min(face_bgr.shape[1], ex + ew + pad)
+            y2   = min(eye_h, ey + eh + pad)
+            c    = face_bgr[y1:y2, x1:x2]
+            if c.size > 0:
+                crops.append(to_rgb(c))
 
+        # Mata paling kiri di gambar = mata KANAN subjek
+        if len(crops) >= 2:
+            result["right_eye"] = crops[0]
+            result["left_eye"]  = crops[1]
+        elif len(crops) == 1:
+            result["right_eye"] = crops[0]
+    else:
+        result["notes"].append(
+            "Mata tidak terdeteksi otomatis — pencahayaan atau sudut wajah "
+            "tidak optimal untuk Haar Eye Cascade."
+        )
+
+    # ── 3. Deteksi mulut — dibatasi di 40% area bawah wajah ───────────────
+    mouth_y0   = int(h * 0.60)
+    mouth_face = face_bgr[mouth_y0:, :]
+    mouth_gray = face_gray[mouth_y0:, :]
+    smiles     = []
+
+    raw_smiles = SMILE_CASCADE.detectMultiScale(
+        mouth_gray, scaleFactor=1.7, minNeighbors=22, minSize=(25, 15)
+    )
+    if len(raw_smiles) > 0:
+        smiles      = sorted(raw_smiles.tolist(), key=lambda s: s[2] * s[3], reverse=True)
+        sx, sy, sw, sh = smiles[0]
+        pad  = int(sw * 0.2)
+        x1   = max(0, sx - pad)
+        y1   = max(0, sy - pad)
+        x2   = min(mouth_face.shape[1], sx + sw + pad)
+        y2   = min(mouth_face.shape[0], sy + sh + pad)
+        c    = mouth_face[y1:y2, x1:x2]
+        if c.size > 0:
+            result["mouth"] = to_rgb(c)
+    else:
+        # Fallback: estimasi proporsional berdasarkan geometri wajah
+        my1  = max(0, int(h * 0.68) - mouth_y0)
+        my2  = min(mouth_face.shape[0], int(h * 0.88) - mouth_y0)
+        mx1  = max(0, int(w * 0.20))
+        mx2  = min(mouth_face.shape[1], int(w * 0.80))
+        c    = mouth_face[my1:my2, mx1:mx2]
+        if c.size > 0:
+            result["mouth"] = to_rgb(c)
+        result["notes"].append(
+            "Area mulut diestimasi secara proporsional karena senyuman "
+            "tidak terdeteksi (Haar Smile Cascade memerlukan senyum yang jelas)."
+        )
+
+    # ── 4. Anotasi bounding box ──────────────────────────────────────────────
+    ann = img_bgr.copy()
+    cv2.rectangle(ann, (x, y), (x + w, y + h), (0, 210, 255), 2)
+    cv2.putText(ann, "WAJAH", (x, max(0, y - 6)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 210, 255), 1, cv2.LINE_AA)
+
+    for ex, ey, ew, eh in eyes:
+        cv2.rectangle(ann, (x + ex, y + ey), (x + ex + ew, y + ey + eh),
+                      (255, 80, 0), 2)
+
+    if len(smiles) > 0:
+        sx, sy, sw, sh = smiles[0]
+        cv2.rectangle(ann,
+                      (x + sx, y + mouth_y0 + sy),
+                      (x + sx + sw, y + mouth_y0 + sy + sh),
+                      (0, 255, 80), 2)
+        cv2.putText(ann, "MULUT",
+                    (x + sx, max(0, y + mouth_y0 + sy - 4)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 80), 1, cv2.LINE_AA)
+
+    result["annotated"] = to_rgb(ann)
     return result
