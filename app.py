@@ -19,9 +19,9 @@ st.set_page_config(
 )
 
 # ── Palet warna ──────────────────────────────────────────────────────────────
-BG = "#080C12"; S1 = "#0F1419"; S2 = "#161C24"; S3 = "#1E2631"
-BD = "#2A3340"; AC = "#4D9EFF"; G  = "#4ADE80"; O  = "#FB923C"
-TX = "#E8EFF8"; MU = "#6B7A8D"
+BG = "#0E0D0C"; S1 = "#141210"; S2 = "#1C1A18"; S3 = "#242119"
+BD = "#2E2A25"; AC = "#C9963A"; G  = "#7CC47E"; O  = "#C97B52"
+TX = "#F2EDE8"; MU = "#80756C"
 
 # ── CSS: hanya override widget Streamlit ─────────────────────────────────────
 st.markdown(f"""<style>
@@ -45,10 +45,24 @@ p,li{{color:{TX};}}
   border-radius:10px!important;background:{S2}!important;}}
 .stRadio label span{{color:{TX}!important;font-size:.85rem!important;}}
 [data-testid="stDownloadButton"] button{{background:{AC}!important;border:none!important;
-  color:#000!important;font-weight:700!important;border-radius:8px!important;}}
+  color:#1a1208!important;font-weight:700!important;border-radius:8px!important;}}
 .stCameraInput video{{border-radius:8px!important;border:1px solid {BD}!important;}}
 [data-testid="stExpander"]{{background:{S2}!important;border:1px solid {BD}!important;
   border-radius:8px!important;}}
+/* Tombol expand sidebar saat di-collapse — pastikan tidak hilang */
+[data-testid="collapsedControl"]{{
+  background:{S2}!important;
+  border-right:1px solid {BD}!important;
+  border-top:1px solid {BD}!important;
+  border-bottom:1px solid {BD}!important;
+  border-radius:0 8px 8px 0!important;
+}}
+[data-testid="collapsedControl"] svg{{
+  fill:{AC}!important;stroke:{AC}!important;
+}}
+[data-testid="collapsedControl"] button{{
+  color:{AC}!important;
+}}
 </style>""", unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -67,8 +81,8 @@ def enc(arr: np.ndarray, q: int = 88) -> tuple:
 def card(arr: np.ndarray, judul: str, sub: str = "") -> str:
     b64, mime = enc(arr)
     badge = (f'<span style="margin-left:.4rem;color:{AC};font-size:.57rem;'
-             f'background:rgba(77,158,255,.1);padding:.07rem .38rem;border-radius:4px;'
-             f'border:1px solid rgba(77,158,255,.2);">{sub}</span>') if sub else ""
+             f'background:rgba(201,150,58,.08);padding:.07rem .38rem;border-radius:4px;'
+             f'border:1px solid rgba(201,150,58,.18);">{sub}</span>') if sub else ""
     return (f'<div style="background:{S2};border:1px solid {BD};border-radius:10px;overflow:hidden;">'
             f'<div style="padding:.42rem .8rem;font-family:monospace;font-size:.59rem;'
             f'text-transform:uppercase;letter-spacing:.1em;color:{MU};background:{S3};'
@@ -99,12 +113,12 @@ def kotak(html: str, color: str = AC) -> str:
             f'font-size:.82rem;color:{MU};line-height:1.8;">{html}</div>')
 
 def notif_ok(t: str) -> str:
-    return (f'<div style="background:rgba(74,222,128,.07);border:1px solid rgba(74,222,128,.3);'
+    return (f'<div style="background:rgba(124,196,126,.07);border:1px solid rgba(124,196,126,.28);'
             f'border-radius:8px;padding:.62rem 1rem;color:{G};font-size:.8rem;'
             f'margin:.5rem 0;font-family:monospace;">{t}</div>')
 
 def notif_warn(t: str) -> str:
-    return (f'<div style="background:rgba(251,146,60,.07);border:1px solid rgba(251,146,60,.3);'
+    return (f'<div style="background:rgba(201,123,82,.07);border:1px solid rgba(201,123,82,.28);'
             f'border-radius:8px;padding:.62rem 1rem;color:{O};font-size:.8rem;'
             f'margin:.5rem 0;font-family:monospace;">{t}</div>')
 
@@ -159,10 +173,10 @@ def get_detect(img_bgr: np.ndarray) -> dict:
     return st.session_state.det
 
 def buat_overlay(img_bgr: np.ndarray, canny_img: np.ndarray) -> np.ndarray:
-    """Overlay tepi Canny (cyan) di atas gambar asli."""
+    """Overlay tepi Canny (amber) di atas gambar asli."""
     overlay = to_rgb(img_bgr).copy()
     mask = cv2.cvtColor(canny_img, cv2.COLOR_RGB2GRAY) > 0
-    overlay[mask] = [0, 210, 255]
+    overlay[mask] = [201, 150, 58]
     return overlay
 
 def buat_grafik(cfgs: list) -> plt.Figure:
@@ -209,7 +223,7 @@ def buat_histogram(img_bgr: np.ndarray, gray_arr: np.ndarray,
     # RGB channel histogram
     ax = axes[0]; ax.set_facecolor(S2)
     img_rgb = to_rgb(img_bgr)
-    for ch, (color, lbl) in enumerate([('#F87171','R'),('#4ADE80','G'),('#60A5FA','B')]):
+    for ch, (color, lbl) in enumerate([('#E07070','R'),('#7CC47E','G'),('#7AAFDC','B')]):
         h = cv2.calcHist([img_rgb],[ch],None,[256],[0,256]).flatten()
         ax.plot(h, color=color, alpha=.85, linewidth=1.1, label=lbl)
     ax.set_title("Distribusi Intensitas RGB", color=TX, fontsize=9, pad=6, fontweight="bold")
@@ -347,7 +361,7 @@ ratio              = sob_dens / can_dens if can_dens > 0 else 0
 
 # Visualisasi tambahan (di-cache per-gambar)
 sob_gray = cv2.cvtColor(sobel_img, cv2.COLOR_RGB2GRAY)
-sob_heat = cv2.cvtColor(cv2.applyColorMap(sob_gray, cv2.COLORMAP_PLASMA), cv2.COLOR_BGR2RGB)
+sob_heat = cv2.cvtColor(cv2.applyColorMap(sob_gray, cv2.COLORMAP_HOT), cv2.COLOR_BGR2RGB)
 overlay  = buat_overlay(img_bgr, canny_img)
 
 # Komputasi berat: cache di session state, tidak re-run saat slider geser
@@ -375,13 +389,13 @@ with t1:
         ("Rasio Sobel / Canny", f"{ratio:.1f}",   "×",   True),
     ), unsafe_allow_html=True)
 
-    # Toggle Sobel: Grayscale vs Heatmap Plasma
+    # Toggle Sobel: Grayscale vs Heatmap
     viz = st.radio("Tampilan Sobel",
-                   ["Grayscale (standar)", "Heatmap Plasma"],
+                   ["Grayscale (standar)", "Heatmap Hot"],
                    horizontal=True, label_visibility="collapsed")
-    use_heat  = "Plasma" in viz
+    use_heat  = "Heatmap" in viz
     sob_disp  = sob_heat if use_heat else sobel_img
-    sob_badge = "COLORMAP_PLASMA" if use_heat else f"Kernel {sobel_k}×{sobel_k}"
+    sob_badge = "COLORMAP_HOT" if use_heat else f"Kernel {sobel_k}×{sobel_k}"
 
     # Baris 1: 4 gambar utama
     st.markdown(grid(
@@ -391,15 +405,15 @@ with t1:
         card(canny_img,        "Canny",     f"T [{c_lo}, {c_hi}]"),
     ), unsafe_allow_html=True)
 
-    # Baris 2: Edge overlay (fitur baru — tepi Canny di-overlay pada gambar asli)
+    # Baris 2: Edge overlay
     st.markdown(
         f'<div style="font-family:monospace;font-size:.67rem;color:{MU};'
         f'text-transform:uppercase;letter-spacing:.1em;margin:.9rem 0 .35rem;">'
-        f'Edge Overlay — tepi Canny (cyan) divisualisasikan pada gambar asli</div>',
+        f'Edge Overlay — tepi Canny (amber) divisualisasikan pada gambar asli</div>',
         unsafe_allow_html=True
     )
     st.markdown(grid(
-        card(overlay, "Canny Overlay", "tepi cyan pada asli"),
+        card(overlay, "Canny Overlay", "tepi amber pada asli"),
         cols=1
     ), unsafe_allow_html=True)
 
@@ -426,7 +440,7 @@ with t1:
         st.pyplot(fig, use_container_width=True)
         plt.close(fig)
 
-    # Histogram (fitur baru)
+    # Histogram
     with st.expander("📈  Histogram distribusi piksel & kepadatan tepi"):
         fig2 = buat_histogram(img_bgr, gray_arr, sob_dens, can_dens)
         st.pyplot(fig2, use_container_width=True)
@@ -459,7 +473,7 @@ with t1:
             unsafe_allow_html=True
         )
 
-    # Download (+ overlay sekarang ikut masuk ZIP)
+    # Download
     st.markdown("")
     zip_bytes = buat_zip(img_bgr, gray_rgb, sobel_img, sob_heat, canny_img, overlay)
     st.download_button(
@@ -473,7 +487,6 @@ with t1:
 #  TAB 2 — DETEKSI FITUR WAJAH
 # ───────────────────────────────────────────────────────────────────────────
 with t2:
-    # det sudah di-cache di session state, tidak re-run di sini
     if det["notes"]:
         for n in det["notes"]:
             st.markdown(notif_warn(f"⚠ {n}"), unsafe_allow_html=True)
